@@ -140,6 +140,28 @@ def iou(preds, masks):
 
     return (inter / (union + 1e-6)).item()
 
+def precision_recall_f1(preds, masks, threshold=0.5):
+    preds = torch.sigmoid(preds)
+    preds = (preds > threshold).float()
+
+    tp = (preds * masks).sum()
+
+    fp = (preds * (1 - masks)).sum()
+    fn = ((1 - preds) * masks).sum()
+
+    precision = tp / (tp + fp + 1e-8)
+    recall = tp / (tp + fn + 1e-8)
+
+    f1 = 2 * (precision * recall) / (
+        precision + recall + 1e-8
+    )
+
+    return (
+        precision.item(),
+        recall.item(),
+        f1.item()
+    )
+
 def f1(preds, masks):
     preds = torch.sigmoid(preds)
     preds = (preds > 0.5).float()
@@ -172,27 +194,49 @@ def train_fn(loader):
     return total / len(loader)
 
 
-def eval_fn(loader):
+def eval_fn(loader, desc="Validation"):
     model.eval()
-    loss_total = 0
-    iou_total = 0
-    f1_total = 0
+
+    total_loss = 0
+    total_iou = 0
+    total_precision = 0
+    total_recall = 0
+    total_f1 = 0
 
     with torch.no_grad():
-        for img, mask in loader:
-            img = img.to(DEVICE)
-            mask = mask.to(DEVICE)
 
-            pred = model(img)
+        loop = tqdm(loader, desc=desc, leave=False)
 
-            loss = dice_loss(pred, mask) + bce_loss(pred, mask)
+        for images, masks in loop:
 
-            loss_total += loss.item()
-            iou_total += iou(pred, mask)
-            f1_total += f1(pred, mask)
+            images = images.to(DEVICE)
+            masks = masks.to(DEVICE)
 
-    n = len(loader)
-    return loss_total/n, iou_total/n, f1_total/n
+            preds = model(images)
+
+            loss1 = dice_loss(preds, masks)
+            loss2 = bce_loss(preds, masks)
+
+            loss = loss1 + loss2
+
+            total_loss += loss.item()
+            total_iou += iou(preds, masks)
+
+            precision, recall, f1 = precision_recall_f1(
+                preds, masks
+            )
+
+            total_precision += precision
+            total_recall += recall
+            total_f1 += f1
+
+    return (
+        total_loss / len(loader),
+        total_iou / len(loader),
+        total_precision / len(loader),
+        total_recall / len(loader),
+        total_f1 / len(loader)
+    )
 
 
 best = 0
@@ -218,8 +262,13 @@ print("\nTESTING")
 
 model.load_state_dict(torch.load("best_model.pth", map_location=DEVICE))
 
-test_loss, test_iou, test_f1 = eval_fn(test_loader)
+test_loss, test_iou, test_precision, test_recall, test_f1 = eval_fn(
+    test_loader,
+    desc="Testing"
+)
 
-print(f"test loss: {test_loss:.4f}")
-print(f"test IoU:  {test_iou:.4f}")
-print(f"test F1:   {test_f1:.4f}")
+print(f"Test Loss:      {test_loss:.4f}")
+print(f"Test IoU:       {test_iou:.4f}")
+print(f"Test Precision: {test_precision:.4f}")
+print(f"Test Recall:    {test_recall:.4f}")
+print(f"Test F1:        {test_f1:.4f}")
