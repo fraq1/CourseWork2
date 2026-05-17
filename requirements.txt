@@ -1,0 +1,8 @@
+torch
+torchvision
+streamlit
+opencv-python
+segmentation-models-pytorch
+albumentations
+tqdm
+gradio
